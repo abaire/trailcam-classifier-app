@@ -23,6 +23,16 @@ from trailcam_classifier.main import ClassificationConfig, run_classification
 from trailcam_classifier.util import MODEL_SAVE_FILENAME
 
 
+def get_resource_path(relative_path: str) -> Path:
+    """Get the absolute path to a resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    except Exception:
+        base_path = Path(".").absolute()
+
+    return base_path / relative_path
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -192,7 +202,8 @@ class MainWindow(QMainWindow):
         self.log(f"Starting classification for folder: {folder_path}")
 
         output_directory = self.settings.value("output_directory", "classified_output")
-        model_path = self.settings.value("model_path", MODEL_SAVE_FILENAME)
+        default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
+        model_path = self.settings.value("model_path", default_model_path)
 
         config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
         self.thread = QThread()

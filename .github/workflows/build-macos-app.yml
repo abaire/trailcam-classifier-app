@@ -1,0 +1,113 @@
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'model/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  Build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Run PyInstaller for GUI
+        run: |
+          pyinstaller src/trailcam_classifier_app/gui.py \
+            --name TrailcamClassifier \
+            --windowed \
+            --add-data "model:model"
+
+      - name: Package GUI application
+        run: |
+          hdiutil create -volname "TrailcamClassifier" -srcfolder "dist/TrailcamClassifier.app" -ov -format UDZO "TrailcamClassifier.dmg"
+
+      - name: Run PyInstaller for Viewer
+        run: |
+          pyinstaller src/trailcam_classifier_app/viewer.py \
+            --name TrailcamViewer \
+            --windowed
+
+      - name: Package Viewer application
+        run: |
+          hdiutil create -volname "TrailcamViewer" -srcfolder "dist/TrailcamViewer.app" -ov -format UDZO "TrailcamViewer.dmg"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GUI
+          path: TrailcamClassifier.dmg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Viewer
+          path: TrailcamViewer.dmg
+
+  CreateRelease:
+    needs: [ Build ]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: GUI
+          path: .
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Viewer
+          path: .
+
+      - name: Create or update release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: latest
+          release_name: Latest Build
+          body: |
+            Automated build of the latest version of the Trailcam Classifier GUI.
+          draft: false
+          prerelease: false
+
+      - name: Upload GUI Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./TrailcamClassifier.dmg
+          asset_name: TrailcamClassifier.dmg
+          asset_content_type: application/octet-stream
+
+      - name: Upload Viewer Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./TrailcamViewer.dmg
+          asset_name: TrailcamViewer.dmg
+          asset_content_type: application/octet-stream
