@@ -1,0 +1,12 @@
+birds
+bobcats
+coyote
+deer
+dogs
+foxes
+hawks
+humans
+mountain_lions
+owls
+skunks
+squirrels
