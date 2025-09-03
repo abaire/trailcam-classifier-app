@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trailcam-classifier-app"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = []
+authors = [
+    { name = "Erik Abair", email = "erik.abair@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+    "trailcam-classifier @ git+https://github.com/abaire/trailcam-classifier.git",
+    "PySide6",
+    "pyinstaller",
+]
+
+[project.scripts]
+trailcamclassify-gui = "trailcam_classifier_app.gui:run_gui"
+
+[project.urls]
+Documentation = "https://github.com/abaire/trailcam-classifier-app#readme"
+Issues = "https://github.com/abaire/trailcam-classifier-app/issues"
+Source = "https://github.com/abaire/trailcam-classifier-app"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+path = "src/trailcam_classifier_app/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+    "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/trailcam_classifier_app tests}"
+
+[tool.coverage.run]
+source_pkgs = ["trailcam_classifier_app", "tests"]
+branch = true
+parallel = true
+omit = [
+    "src/trailcam_classifier_app/__about__.py",
+]
+
+[tool.coverage.paths]
+trailcam_classifier_app = ["src/trailcam_classifier_app", "*/trailcam-classifier-app/src/trailcam_classifier_app"]
+tests = ["tests", "*/trailcam-classifier-app/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "no cov",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
