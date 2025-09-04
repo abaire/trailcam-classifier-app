@@ -71,6 +71,8 @@ jobs:
     needs: [ Build ]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
 
       - uses: actions/download-artifact@v4
@@ -83,35 +85,18 @@ jobs:
           name: Viewer
           path: .
 
-      - name: Create or update release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate tag
+        id: tag
+        run: echo "TAG_NAME=release-$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_ENV
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          release_name: Latest Build
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
           body: |
             Automated build of the latest version of the Trailcam Classifier GUI.
-          draft: false
-          prerelease: false
-
-      - name: Upload GUI Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./TrailcamClassifier.dmg
-          asset_name: TrailcamClassifier.dmg
-          asset_content_type: application/octet-stream
-
-      - name: Upload Viewer Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./TrailcamViewer.dmg
-          asset_name: TrailcamViewer.dmg
-          asset_content_type: application/octet-stream
+          make_latest: true
+          files: |
+            TrailcamClassifier.dmg
+            TrailcamViewer.dmg
