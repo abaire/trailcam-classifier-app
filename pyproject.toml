@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
     "PySide6",
     "pyinstaller",
+    "qtinter",
 ]
 
 [project.optional-dependencies]
