@@ -36,10 +36,6 @@ jobs:
             --name TrailcamViewer \
             --windowed
 
-      - name: Package Viewer application
-        run: |
-          hdiutil create -volname "TrailcamViewer" -srcfolder "dist/TrailcamViewer.app" -ov -format UDZO "TrailcamViewer.dmg"
-
       - name: Install GUI dependencies
         run: |
           pip install .[gui]
@@ -51,6 +47,10 @@ jobs:
             --windowed \
             --add-data "model:model"
 
+      - name: Package Viewer application
+        run: |
+          hdiutil create -volname "TrailcamViewer" -srcfolder "dist/TrailcamViewer.app" -ov -format UDZO "TrailcamViewer.dmg"
+
       - name: Package GUI application
         run: |
           hdiutil create -volname "TrailcamClassifier" -srcfolder "dist/TrailcamClassifier.app" -ov -format UDZO "TrailcamClassifier.dmg"
@@ -58,14 +58,14 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GUI
-          path: TrailcamClassifier.dmg
+          name: Viewer
+          path: TrailcamViewer.dmg
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Viewer
-          path: TrailcamViewer.dmg
+          name: GUI
+          path: TrailcamClassifier.dmg
 
   CreateRelease:
     needs: [ Build ]
