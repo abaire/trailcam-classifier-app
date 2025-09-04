@@ -21,9 +21,13 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-    "trailcam-classifier @ git+https://github.com/abaire/trailcam-classifier.git",
     "PySide6",
     "pyinstaller",
+]
+
+[project.optional-dependencies]
+gui = [
+    "trailcam-classifier @ git+https://github.com/abaire/trailcam-classifier.git",
 ]
 
 [project.scripts]

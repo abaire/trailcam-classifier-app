@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from trailcam_classifier.util import find_images
+from trailcam_classifier_app.util import find_images
 
 
 class AnnotationLabel(QLabel):

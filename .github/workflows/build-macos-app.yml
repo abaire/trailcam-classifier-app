@@ -25,10 +25,24 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install Viewer dependencies
         run: |
           python -m pip install --upgrade pip
           pip install .
+
+      - name: Run PyInstaller for Viewer
+        run: |
+          pyinstaller src/trailcam_classifier_app/viewer.py \
+            --name TrailcamViewer \
+            --windowed
+
+      - name: Package Viewer application
+        run: |
+          hdiutil create -volname "TrailcamViewer" -srcfolder "dist/TrailcamViewer.app" -ov -format UDZO "TrailcamViewer.dmg"
+
+      - name: Install GUI dependencies
+        run: |
+          pip install .[gui]
 
       - name: Run PyInstaller for GUI
         run: |
@@ -40,16 +54,6 @@ jobs:
       - name: Package GUI application
         run: |
           hdiutil create -volname "TrailcamClassifier" -srcfolder "dist/TrailcamClassifier.app" -ov -format UDZO "TrailcamClassifier.dmg"
-
-      - name: Run PyInstaller for Viewer
-        run: |
-          pyinstaller src/trailcam_classifier_app/viewer.py \
-            --name TrailcamViewer \
-            --windowed
-
-      - name: Package Viewer application
-        run: |
-          hdiutil create -volname "TrailcamViewer" -srcfolder "dist/TrailcamViewer.app" -ov -format UDZO "TrailcamViewer.dmg"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
