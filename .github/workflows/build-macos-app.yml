@@ -45,7 +45,8 @@ jobs:
           pyinstaller src/trailcam_classifier_app/gui.py \
             --name TrailcamClassifier \
             --windowed \
-            --add-data "model:model"
+            --add-data "model:model" \
+            --icon "icons/ClassifierIcon.png"
 
       - name: Package Viewer application
         run: |
