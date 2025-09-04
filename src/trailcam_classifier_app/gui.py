@@ -6,7 +6,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
+import qtinter
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -94,30 +96,6 @@ class SettingsDialog(QDialog):
         super().accept()
 
 
-class Worker(QObject):
-    """A worker object that runs the classification in a separate thread."""
-
-    log_message = Signal(str)
-    log_progress = Signal(str, int)
-    finished = Signal()
-
-    def __init__(self, config: ClassificationConfig):
-        super().__init__()
-        self.config = config
-
-    def run(self):
-        """Runs the classification."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(
-                run_classification(self.config, logger=self.log_message.emit, progress_update=self.log_progress.emit)
-            )
-        finally:
-            loop.close()
-        self.finished.emit()
-
-
 class DropLabel(QLabel):
     def __init__(self, text, parent: MainWindow):
         super().__init__(text, parent)
@@ -160,29 +138,30 @@ class DropLabel(QLabel):
 
 
 class MainWindow(QMainWindow):
+    progress_updated = Signal(int, int)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Trailcam Classifier")
         self.setGeometry(100, 100, 600, 400)
-
         self.settings = QSettings()
+        self._classification_task = None
+        self._progress_counter = 0
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-
         layout = QVBoxLayout(central_widget)
-
         self.drop_label = DropLabel("Drop a folder here", self)
         layout.addWidget(self.drop_label)
-
         self.log_widget = QTextEdit()
         self.log_widget.setReadOnly(True)
         layout.addWidget(self.log_widget)
 
-        self.thread = None
-        self.worker = None
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar)
 
         self._create_menus()
+        self.progress_updated.connect(self._on_progress_updated)
 
     def _create_menus(self):
         menu_bar = self.menuBar()
@@ -199,43 +178,45 @@ class MainWindow(QMainWindow):
     def log(self, message: str):
         self.log_widget.append(message)
 
-    def log_progress(self, item_name: str, total_count: int):
-        self.log_widget.append(f"{item_name} / {total_count}")
+    def log_progress(self, _item_name: str, total_count: int):
+        self._progress_counter += 1
+        self.progress_updated.emit(self._progress_counter, total_count)
+
+    def _on_progress_updated(self, current_value: int, total_count: int):
+        if self.progress_bar.maximum() != total_count:
+            self.progress_bar.setMaximum(total_count)
+        self.progress_bar.setValue(current_value)
 
     def start_classification(self, folder_path: str):
-        if self.thread and self.thread.isRunning():
+        if self._classification_task and not self._classification_task.done():
             self.log("A classification process is already running.")
             return
 
+        self._classification_task = asyncio.create_task(self._start_classification_async(folder_path))
+
+    async def _start_classification_async(self, folder_path: str):
         self.log_widget.clear()
         self.log(f"Starting classification for folder: {folder_path}")
+        self.progress_bar.setValue(0)
+        self._progress_counter = 0
 
         output_directory: str = os.path.abspath(str(self.settings.value("output_directory", "classified_output")))
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
         model_path: str = str(self.settings.value("model_path", default_model_path))
 
         config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
-        self.thread = QThread()
-        self.worker = Worker(config)
-        self.worker.moveToThread(self.thread)
 
-        self.worker.log_message.connect(self.log)
-        self.worker.log_progress.connect(self.log_progress)
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-
-        self.thread.start()
+        await run_classification(config, logger=self.log, progress_update=self.log_progress)
 
 
 def run_gui():
     QApplication.setOrganizationName("BearBrains")
     QApplication.setApplicationName("Trailcam Classifier")
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    with qtinter.using_asyncio_from_qt():
+        window = MainWindow()
+        window.show()
+        app.exec()
 
 
 if __name__ == "__main__":
