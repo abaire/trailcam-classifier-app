@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: N802 Function name should be lowercase
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -25,13 +26,15 @@ from trailcam_classifier.util import MODEL_SAVE_FILENAME
 
 def get_resource_path(relative_path: str) -> Path:
     """Get the absolute path to a resource, works for dev and for PyInstaller"""
+
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = Path(sys._MEIPASS)
-    except Exception:
+        base_path = Path(sys._MEIPASS)  # noqa: SLF001 Private member accessed: `_MEIPASS`
+    except AttributeError:
         base_path = Path(".").absolute()
 
     return base_path / relative_path
+
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -95,6 +98,7 @@ class Worker(QObject):
     """A worker object that runs the classification in a separate thread."""
 
     log_message = Signal(str)
+    log_progress = Signal(str, int)
     finished = Signal()
 
     def __init__(self, config: ClassificationConfig):
@@ -106,7 +110,9 @@ class Worker(QObject):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(run_classification(self.config, logger=self.log_message.emit))
+            loop.run_until_complete(
+                run_classification(self.config, logger=self.log_message.emit, progress_update=self.log_progress.emit)
+            )
         finally:
             loop.close()
         self.finished.emit()
@@ -193,6 +199,9 @@ class MainWindow(QMainWindow):
     def log(self, message: str):
         self.log_widget.append(message)
 
+    def log_progress(self, item_name: str, total_count: int):
+        self.log_widget.append(f"{item_name} / {total_count}")
+
     def start_classification(self, folder_path: str):
         if self.thread and self.thread.isRunning():
             self.log("A classification process is already running.")
@@ -201,9 +210,9 @@ class MainWindow(QMainWindow):
         self.log_widget.clear()
         self.log(f"Starting classification for folder: {folder_path}")
 
-        output_directory = self.settings.value("output_directory", "classified_output")
+        output_directory: str = os.path.abspath(str(self.settings.value("output_directory", "classified_output")))
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
-        model_path = self.settings.value("model_path", default_model_path)
+        model_path: str = str(self.settings.value("model_path", default_model_path))
 
         config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
         self.thread = QThread()
@@ -211,6 +220,7 @@ class MainWindow(QMainWindow):
         self.worker.moveToThread(self.thread)
 
         self.worker.log_message.connect(self.log)
+        self.worker.log_progress.connect(self.log_progress)
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
