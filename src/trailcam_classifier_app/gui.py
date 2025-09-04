@@ -138,6 +138,7 @@ class DropLabel(QLabel):
 
 
 class MainWindow(QMainWindow):
+    log_updated = Signal(str)
     progress_updated = Signal(int, int)
 
     def __init__(self):
@@ -161,6 +162,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
 
         self._create_menus()
+        self.log_updated.connect(self.log)
         self.progress_updated.connect(self._on_progress_updated)
 
     def _create_menus(self):
@@ -200,13 +202,13 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self._progress_counter = 0
 
-        output_directory: str = os.path.abspath(str(self.settings.value("output_directory", "classified_output")))
+        output_directory: str = os.path.abspath(str(self.settings.value("output_directory", "images_with_objects_detected")))
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
         model_path: str = str(self.settings.value("model_path", default_model_path))
 
         config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
 
-        await run_classification(config, logger=self.log, progress_update=self.log_progress)
+        await run_classification(config, logger=self.log_updated.emit, progress_update=self.log_progress)
 
 
 def run_gui():
