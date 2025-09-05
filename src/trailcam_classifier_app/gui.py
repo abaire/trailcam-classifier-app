@@ -4,11 +4,12 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import traceback
 from functools import partial
 from pathlib import Path
 
 import qtinter
-from PySide6.QtCore import QMetaObject, QSettings, Qt, Signal, Q_ARG, Slot
+from PySide6.QtCore import QEvent, QMetaObject, QSettings, Qt, Signal, Q_ARG, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -48,7 +49,11 @@ def run_coroutine_in_thread(
 
         kwargs["logger"] = thread_safe_logger
         kwargs["progress_update"] = thread_safe_progress_update
-        asyncio.run(coroutine(*args, **kwargs))
+        try:
+            asyncio.run(coroutine(*args, **kwargs))
+        except Exception:
+            tb = traceback.format_exc()
+            QMetaObject.invokeMethod(window, "log", Qt.QueuedConnection, Q_ARG(str, f"An error occurred:\n{tb}"))
 
     thread = threading.Thread(target=thread_target)
     thread.start()
@@ -65,6 +70,19 @@ def get_resource_path(relative_path: str) -> Path:
         base_path = Path(".").absolute()
 
     return base_path / relative_path
+
+
+class Application(QApplication):
+    """Application class to handle app-level events."""
+
+    main_window: MainWindow | None = None
+
+    def event(self, event: QEvent) -> bool:  # noqa: N802 Function name should be lowercase
+        if event.type() == QEvent.Type.FileOpen:
+            if self.main_window:
+                self.main_window.start_classification(event.file())
+            return True
+        return super().event(event)
 
 
 class SettingsDialog(QDialog):
@@ -226,7 +244,8 @@ class MainWindow(QMainWindow):
             return
 
         self.log_widget.clear()
-        self.log(f"Starting classification for folder: {folder_path}")
+        abs_folder_path = os.path.abspath(folder_path)
+        self.log(f"Starting classification for folder: {abs_folder_path}")
         self.progress_bar.setValue(0)
         self._progress_counter = 0
 
@@ -234,7 +253,7 @@ class MainWindow(QMainWindow):
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
         model_path: str = str(self.settings.value("model_path", default_model_path))
 
-        config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
+        config = ClassificationConfig(dirs=[abs_folder_path], output=output_directory, model=model_path)
 
         self._classification_task = run_coroutine_in_thread(
             self,
@@ -246,9 +265,10 @@ class MainWindow(QMainWindow):
 def run_gui():
     QApplication.setOrganizationName("BearBrains")
     QApplication.setApplicationName("Trailcam Classifier")
-    app = QApplication(sys.argv)
+    app = Application(sys.argv)
     with qtinter.using_asyncio_from_qt():
         window = MainWindow()
+        app.main_window = window
         window.show()
         app.exec()
 

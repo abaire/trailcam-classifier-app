@@ -51,7 +51,8 @@ jobs:
             --name TrailcamClassifier \
             --windowed \
             --add-data "model:model" \
-            --icon "icons/ClassifierIcon.png"
+            --icon "icons/ClassifierIcon.png" \
+            --osx-bundle-identifier "com.bearbrains.trailcamclassifier"
 
       - name: Package Viewer application
         run: |
