@@ -25,6 +25,10 @@ def find_images(
     ignored_paths = [Path(ignored) for ignored in ignore_dirs]
 
     def keep_file(filename: Path) -> bool:
+        # Ignore dotfile metadata
+        if filename.name.startswith("."):
+            return False
+
         if any(filename.is_relative_to(ignored) for ignored in ignored_paths):
             return False
 
