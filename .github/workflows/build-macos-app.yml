@@ -36,7 +36,9 @@ jobs:
         run: |
           pyinstaller src/trailcam_classifier_app/viewer.py \
             --name TrailcamViewer \
-            --windowed
+            --windowed \
+            --icon "icons/ViewerIcon.png" \
+            --osx-bundle-identifier "com.bearbrains.trailcamclassifier.viewer"
 
       - name: Install GUI dependencies
         run: |
