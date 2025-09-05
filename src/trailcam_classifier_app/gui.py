@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import threading
 import traceback
-from functools import partial
+import typing
 from pathlib import Path
 
 import qtinter
-from PySide6.QtCore import QEvent, QMetaObject, QSettings, Qt, Signal, Q_ARG, Slot
+from PySide6.QtCore import Q_ARG, QEvent, QMetaObject, QSettings, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -24,10 +25,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-import threading
-import typing
 from trailcam_classifier.main import ClassificationConfig, run_classification
 from trailcam_classifier.util import MODEL_SAVE_FILENAME
+
+_DEFAULT_OUTPUT_DIRECTORY = "images_with_objects_detected"
 
 
 def run_coroutine_in_thread(
@@ -51,7 +52,7 @@ def run_coroutine_in_thread(
         kwargs["progress_update"] = thread_safe_progress_update
         try:
             asyncio.run(coroutine(*args, **kwargs))
-        except Exception:
+        except Exception:  # noqa: BLE001 Do not catch blind exception: `Exception`
             tb = traceback.format_exc()
             QMetaObject.invokeMethod(window, "log", Qt.QueuedConnection, Q_ARG(str, f"An error occurred:\n{tb}"))
 
@@ -72,12 +73,17 @@ def get_resource_path(relative_path: str) -> Path:
     return base_path / relative_path
 
 
+def is_bundle() -> bool:
+    """Returns True if the application is running from a PyInstaller bundle."""
+    return hasattr(sys, "_MEIPASS")
+
+
 class Application(QApplication):
     """Application class to handle app-level events."""
 
     main_window: MainWindow | None = None
 
-    def event(self, event: QEvent) -> bool:  # noqa: N802 Function name should be lowercase
+    def event(self, event: QEvent) -> bool:  # Function name should be lowercase
         if event.type() == QEvent.Type.FileOpen:
             if self.main_window:
                 self.main_window.start_classification(event.file())
@@ -238,6 +244,25 @@ class MainWindow(QMainWindow):
             self.progress_bar.setMaximum(total_count)
         self.progress_bar.setValue(current_value)
 
+    def get_output_directory(self) -> str:
+        """Determines the output directory based on settings and execution context."""
+        output_dir_setting = self.settings.value("output_directory")
+
+        if output_dir_setting:
+            output_path = Path(output_dir_setting)
+            if not output_path.is_absolute() and is_bundle():
+                # For relative paths when bundled, resolve them relative to the
+                # directory containing the .app bundle.
+                # sys.executable is .../Blah.app/Contents/MacOS/Blah in a bundle
+                # .parents[3] is the directory containing the .app
+                app_bundle_container_dir = Path(sys.executable).parents[3]
+                return str(app_bundle_container_dir / output_path)
+            return str(output_path)
+
+        if is_bundle():
+            return str(Path.home() / "Desktop" / _DEFAULT_OUTPUT_DIRECTORY)
+        return _DEFAULT_OUTPUT_DIRECTORY
+
     def start_classification(self, folder_path: str):
         if self._classification_task and self._classification_task.is_alive():
             self.log("A classification process is already running.")
@@ -249,7 +274,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self._progress_counter = 0
 
-        output_directory: str = os.path.abspath(str(self.settings.value("output_directory", "images_with_objects_detected")))
+        output_directory = os.path.abspath(self.get_output_directory())
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
         model_path: str = str(self.settings.value("model_path", default_model_path))
 
