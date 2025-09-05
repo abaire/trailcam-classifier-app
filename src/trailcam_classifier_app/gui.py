@@ -10,7 +10,8 @@ import typing
 from pathlib import Path
 
 import qtinter
-from PySide6.QtCore import Q_ARG, QEvent, QMetaObject, QSettings, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, QDataStream, QMetaObject, QSettings, Qt, Signal, Slot
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -81,14 +82,7 @@ def is_bundle() -> bool:
 class Application(QApplication):
     """Application class to handle app-level events."""
 
-    main_window: MainWindow | None = None
-
-    def event(self, event: QEvent) -> bool:  # Function name should be lowercase
-        if event.type() == QEvent.Type.FileOpen:
-            if self.main_window:
-                self.main_window.start_classification(event.file())
-            return True
-        return super().event(event)
+    new_file_open = Signal(str)
 
 
 class SettingsDialog(QDialog):
@@ -176,18 +170,12 @@ class DropLabel(QLabel):
         event.accept()
 
     def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if not urls:
-            return
-
-        # For now, we only support dropping a single folder.
-        url = urls[0]
-        if url.isLocalFile():
-            folder_path = url.toLocalFile()
-            if Path(folder_path).is_dir():
-                self.parent_widget.start_classification(folder_path)
-            else:
-                self.parent_widget.log("Please drop a folder, not a file.")
+        # By accepting the proposed action, we allow the OS to handle the drop.
+        # This will trigger the single-instance logic, which is the sole
+        # mechanism for starting classification from a file/folder path.
+        # We avoid calling start_classification here to prevent handling
+        # the event twice.
+        event.acceptProposedAction()
 
 
 class MainWindow(QMainWindow):
@@ -217,6 +205,7 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self.log_updated.connect(self.log)
         self.progress_updated.connect(self._on_progress_updated)
+        QApplication.instance().new_file_open.connect(self.start_classification)
 
     def _create_menus(self):
         menu_bar = self.menuBar()
@@ -290,12 +279,60 @@ class MainWindow(QMainWindow):
 def run_gui():
     QApplication.setOrganizationName("BearBrains")
     QApplication.setApplicationName("Trailcam Classifier")
+    server_name = "TrailcamClassifierApp"
+
+    socket = QLocalSocket()
+    socket.connectToServer(server_name)
+
+    if socket.waitForConnected(500):
+        args = sys.argv[1:]
+        if args:
+            # We only process the first argument, which should be the folder path.
+            # The OS can sometimes pass the folder's contents as subsequent arguments.
+            out = QDataStream(socket)
+            out.writeQString(args[0])
+            socket.flush()
+            socket.waitForBytesWritten(1000)
+        socket.disconnectFromServer()
+        return
+
+    server = QLocalServer()
+
+    def cleanup():
+        server.close()
+        # QLocalServer may not remove the socket file on all platforms
+        # especially on unclean shutdowns. We do it manually.
+        QLocalServer.removeServer(server_name)
+
     app = Application(sys.argv)
+    app.aboutToQuit.connect(cleanup)
+
+    server.listen(server_name)
+
+    def handle_new_connection():
+        socket = server.nextPendingConnection()
+        if socket:
+            socket.waitForReadyRead(1000)
+            stream = QDataStream(socket)
+            message = stream.readQString()
+            if message:
+                app.new_file_open.emit(message)
+            socket.disconnectFromServer()
+
+    server.newConnection.connect(handle_new_connection)
+
     with qtinter.using_asyncio_from_qt():
         window = MainWindow()
-        app.main_window = window
         window.show()
-        app.exec()
+
+        if len(sys.argv) > 1:
+            for arg in sys.argv[1:]:
+                # On some systems, the OS might pass other flags. We only want
+                # to open things that look like paths.
+                if Path(arg).exists():
+                    window.start_classification(arg)
+
+        sys.exit(app.exec())
 
 
 if __name__ == "__main__":
