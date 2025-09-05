@@ -4,10 +4,11 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from functools import partial
 from pathlib import Path
 
 import qtinter
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import QMetaObject, QSettings, Qt, Signal, Q_ARG, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -22,8 +23,36 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import threading
+import typing
 from trailcam_classifier.main import ClassificationConfig, run_classification
 from trailcam_classifier.util import MODEL_SAVE_FILENAME
+
+
+def run_coroutine_in_thread(
+    window: MainWindow,
+    coroutine: typing.Coroutine,
+    *args,
+    **kwargs,
+) -> threading.Thread:
+    """Runs a coroutine in a new thread."""
+
+    def thread_target():
+        def thread_safe_logger(message: str):
+            QMetaObject.invokeMethod(window, "log", Qt.QueuedConnection, Q_ARG(str, message))
+
+        def thread_safe_progress_update(item_name: str, total_count: int):
+            QMetaObject.invokeMethod(
+                window, "log_progress", Qt.QueuedConnection, Q_ARG(str, item_name), Q_ARG(int, total_count)
+            )
+
+        kwargs["logger"] = thread_safe_logger
+        kwargs["progress_update"] = thread_safe_progress_update
+        asyncio.run(coroutine(*args, **kwargs))
+
+    thread = threading.Thread(target=thread_target)
+    thread.start()
+    return thread
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -177,9 +206,11 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         dialog.exec()
 
+    @Slot(str)
     def log(self, message: str):
         self.log_widget.append(message)
 
+    @Slot(str, int)
     def log_progress(self, _item_name: str, total_count: int):
         self._progress_counter += 1
         self.progress_updated.emit(self._progress_counter, total_count)
@@ -190,13 +221,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(current_value)
 
     def start_classification(self, folder_path: str):
-        if self._classification_task and not self._classification_task.done():
+        if self._classification_task and self._classification_task.is_alive():
             self.log("A classification process is already running.")
             return
 
-        self._classification_task = asyncio.create_task(self._start_classification_async(folder_path))
-
-    async def _start_classification_async(self, folder_path: str):
         self.log_widget.clear()
         self.log(f"Starting classification for folder: {folder_path}")
         self.progress_bar.setValue(0)
@@ -208,7 +236,11 @@ class MainWindow(QMainWindow):
 
         config = ClassificationConfig(dirs=[folder_path], output=output_directory, model=model_path)
 
-        await run_classification(config, logger=self.log_updated.emit, progress_update=self.log_progress)
+        self._classification_task = run_coroutine_in_thread(
+            self,
+            run_classification,
+            config=config,
+        )
 
 
 def run_gui():
