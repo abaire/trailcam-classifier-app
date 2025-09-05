@@ -293,8 +293,10 @@ def run_gui():
     if socket.waitForConnected(500):
         args = sys.argv[1:]
         if args:
+            # We only process the first argument, which should be the folder path.
+            # The OS can sometimes pass the folder's contents as subsequent arguments.
             out = QDataStream(socket)
-            out.writeQString("\n".join(args))
+            out.writeQString(args[0])
             socket.flush()
             socket.waitForBytesWritten(1000)
         socket.disconnectFromServer()
@@ -319,9 +321,8 @@ def run_gui():
             socket.waitForReadyRead(1000)
             stream = QDataStream(socket)
             message = stream.readQString()
-            for file_path in message.split("\n"):
-                if file_path:
-                    app.new_file_open.emit(file_path)
+            if message:
+                app.new_file_open.emit(message)
             socket.disconnectFromServer()
 
     server.newConnection.connect(handle_new_connection)
