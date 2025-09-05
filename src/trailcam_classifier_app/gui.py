@@ -10,7 +10,8 @@ import typing
 from pathlib import Path
 
 import qtinter
-from PySide6.QtCore import Q_ARG, QEvent, QMetaObject, QSettings, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, QDataStream, QMetaObject, QSettings, Qt, Signal, Slot
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -81,14 +82,7 @@ def is_bundle() -> bool:
 class Application(QApplication):
     """Application class to handle app-level events."""
 
-    main_window: MainWindow | None = None
-
-    def event(self, event: QEvent) -> bool:  # Function name should be lowercase
-        if event.type() == QEvent.Type.FileOpen:
-            if self.main_window:
-                self.main_window.start_classification(event.file())
-            return True
-        return super().event(event)
+    new_file_open = Signal(str)
 
 
 class SettingsDialog(QDialog):
@@ -217,6 +211,7 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self.log_updated.connect(self.log)
         self.progress_updated.connect(self._on_progress_updated)
+        QApplication.instance().new_file_open.connect(self.start_classification)
 
     def _create_menus(self):
         menu_bar = self.menuBar()
@@ -290,12 +285,59 @@ class MainWindow(QMainWindow):
 def run_gui():
     QApplication.setOrganizationName("BearBrains")
     QApplication.setApplicationName("Trailcam Classifier")
+    server_name = "TrailcamClassifierApp"
+
+    socket = QLocalSocket()
+    socket.connectToServer(server_name)
+
+    if socket.waitForConnected(500):
+        args = sys.argv[1:]
+        if args:
+            out = QDataStream(socket)
+            out.writeQString("\n".join(args))
+            socket.flush()
+            socket.waitForBytesWritten(1000)
+        socket.disconnectFromServer()
+        return
+
+    server = QLocalServer()
+
+    def cleanup():
+        server.close()
+        # QLocalServer may not remove the socket file on all platforms
+        # especially on unclean shutdowns. We do it manually.
+        QLocalServer.removeServer(server_name)
+
     app = Application(sys.argv)
+    app.aboutToQuit.connect(cleanup)
+
+    server.listen(server_name)
+
+    def handle_new_connection():
+        socket = server.nextPendingConnection()
+        if socket:
+            socket.waitForReadyRead(1000)
+            stream = QDataStream(socket)
+            message = stream.readQString()
+            for file_path in message.split("\n"):
+                if file_path:
+                    app.new_file_open.emit(file_path)
+            socket.disconnectFromServer()
+
+    server.newConnection.connect(handle_new_connection)
+
     with qtinter.using_asyncio_from_qt():
         window = MainWindow()
-        app.main_window = window
         window.show()
-        app.exec()
+
+        if len(sys.argv) > 1:
+            for arg in sys.argv[1:]:
+                # On some systems, the OS might pass other flags. We only want
+                # to open things that look like paths.
+                if Path(arg).exists():
+                    window.start_classification(arg)
+
+        sys.exit(app.exec())
 
 
 if __name__ == "__main__":
