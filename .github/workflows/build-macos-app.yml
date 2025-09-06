@@ -34,6 +34,8 @@ jobs:
 
       - name: Run PyInstaller for Viewer
         run: |
+          # Required to convert the icon PNG.
+          pip install pillow
           pyinstaller src/trailcam_classifier_app/viewer.py \
             --name TrailcamViewer \
             --windowed \
