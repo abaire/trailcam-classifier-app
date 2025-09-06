@@ -11,6 +11,7 @@ from pathlib import Path
 
 import qtinter
 from PySide6.QtCore import Q_ARG, QDataStream, QMetaObject, QSettings, Qt, Signal, Slot
+from PySide6.QtGui import QIntValidator
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QPushButton,
+    QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -93,7 +95,6 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Output directory
         output_dir_layout = QHBoxLayout()
         output_dir_label = QLabel("Output Directory:")
         self.output_dir_edit = QLineEdit()
@@ -105,7 +106,6 @@ class SettingsDialog(QDialog):
         output_dir_layout.addWidget(browse_output_button)
         layout.addLayout(output_dir_layout)
 
-        # Model path
         model_path_layout = QHBoxLayout()
         model_path_label = QLabel("Model Path:")
         self.model_path_edit = QLineEdit()
@@ -117,7 +117,22 @@ class SettingsDialog(QDialog):
         model_path_layout.addWidget(browse_model_button)
         layout.addLayout(model_path_layout)
 
-        # Save and Cancel buttons
+        confidence_layout = QHBoxLayout()
+        confidence_label = QLabel("Confidence Threshold:")
+        self.confidence_slider = QSlider(Qt.Horizontal)
+        self.confidence_slider.setRange(0, 100)
+        self.confidence_edit = QLineEdit()
+        self.confidence_edit.setValidator(QIntValidator(0, 100))
+        self.confidence_slider.valueChanged.connect(self.update_confidence_edit)
+        self.confidence_edit.textChanged.connect(self.update_confidence_slider)
+        confidence_layout.addWidget(confidence_label)
+        confidence_layout.addWidget(self.confidence_slider)
+        confidence_layout.addWidget(self.confidence_edit)
+        layout.addLayout(confidence_layout)
+
+        self.confidence_slider.setValue(self.settings.value("confidence_threshold", 65, type=int))
+        self.update_confidence_edit(self.confidence_slider.value())
+
         button_layout = QHBoxLayout()
         save_button = QPushButton("Save")
         save_button.clicked.connect(self.accept)
@@ -137,9 +152,17 @@ class SettingsDialog(QDialog):
         if filepath:
             self.model_path_edit.setText(filepath)
 
+    def update_confidence_edit(self, value):
+        self.confidence_edit.setText(str(value))
+
+    def update_confidence_slider(self, text):
+        if text:
+            self.confidence_slider.setValue(int(text))
+
     def accept(self):
         self.settings.setValue("output_directory", self.output_dir_edit.text())
         self.settings.setValue("model_path", self.model_path_edit.text())
+        self.settings.setValue("confidence_threshold", self.confidence_slider.value())
         super().accept()
 
 
@@ -272,8 +295,15 @@ class MainWindow(QMainWindow):
         output_directory = os.path.abspath(self.get_output_directory())
         default_model_path = str(get_resource_path("model/trailcam_classifier_model.pt"))
         model_path: str = str(self.settings.value("model_path", default_model_path))
+        confidence_threshold_int = self.settings.value("confidence_threshold", 65, type=int)
+        confidence_threshold = confidence_threshold_int / 100.0
 
-        config = ClassificationConfig(dirs=[abs_folder_path], output=output_directory, model=model_path)
+        config = ClassificationConfig(
+            dirs=[abs_folder_path],
+            output=output_directory,
+            model=model_path,
+            confidence_threshold=confidence_threshold,
+        )
 
         self._classification_task = run_coroutine_in_thread(
             self,
