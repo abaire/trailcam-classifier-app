@@ -10,3 +10,6 @@ mountain_lions
 owls
 skunks
 squirrels
+eagles
+raccoons
+unknown
